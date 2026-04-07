@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.eggs/
+build/
+dist/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+.vite/
+*.log
+npm-debug.log*
+
+# UnityLens runtime
+unitylens/static/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+context_cache.txt
+data/
+logs/
+
+# Env / secrets
+.env
+.env.*
+*.pem
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp

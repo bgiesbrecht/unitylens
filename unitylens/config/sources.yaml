@@ -1,0 +1,31 @@
+# UnityLens source configuration
+#
+# Environment variable interpolation is supported via ${VAR_NAME} syntax.
+# Each source must have a unique "name" and a "type" matching a registered
+# source class (databricks, snowflake, oracle, etc.).
+
+sources:
+  - name: prod_databricks
+    type: databricks
+    host: ${DATABRICKS_HOST}
+    token: ${DATABRICKS_TOKEN}
+    warehouse_id: ${DATABRICKS_WAREHOUSE_ID}
+    catalog_filter: []  # Empty = all catalogs. Add names to restrict, e.g. [bg, clinical]
+    deny_tags: {}
+    allow_tags: {}
+
+  # Example Snowflake source (uncomment when ready):
+  # - name: prod_snowflake
+  #   type: snowflake
+  #   account: ${SNOWFLAKE_ACCOUNT}
+  #   user: ${SNOWFLAKE_USER}
+  #   password: ${SNOWFLAKE_PASSWORD}
+  #   warehouse: ${SNOWFLAKE_WAREHOUSE}
+  #   role: ${SNOWFLAKE_ROLE}
+
+  # Example Oracle source (uncomment when ready):
+  # - name: prod_oracle
+  #   type: oracle
+  #   dsn: ${ORACLE_DSN}
+  #   user: ${ORACLE_USER}
+  #   password: ${ORACLE_PASSWORD}
