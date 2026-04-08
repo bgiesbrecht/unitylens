@@ -6,8 +6,9 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
+from unitylens.auth.deps import require_admin
 from unitylens.config.settings import get_settings, load_sources_config
 from unitylens.context.builder import build_context, invalidate_cache
 from unitylens.crawler.orchestrator import crawl_all, crawl_single
@@ -15,7 +16,11 @@ from unitylens.store import db
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/admin", tags=["admin"])
+router = APIRouter(
+    prefix="/api/admin",
+    tags=["admin"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 def _run_crawl_all() -> list[dict[str, Any]]:

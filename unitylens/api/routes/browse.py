@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from unitylens.auth.deps import current_user
 from unitylens.config.settings import load_sources_config
 from unitylens.store import db
 
-router = APIRouter(prefix="/api", tags=["browse"])
+router = APIRouter(
+    prefix="/api",
+    tags=["browse"],
+    dependencies=[Depends(current_user)],
+)
 
 
 @router.get("/dictionary")

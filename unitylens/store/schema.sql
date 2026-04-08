@@ -66,6 +66,26 @@ CREATE INDEX IF NOT EXISTS idx_schemas_source_catalog ON schemas(source_name, ca
 CREATE INDEX IF NOT EXISTS idx_tables_source_catalog_schema ON tables(source_name, catalog_name, schema_name);
 CREATE INDEX IF NOT EXISTS idx_columns_table ON columns(source_name, catalog_name, schema_name, table_name);
 
+-- Authentication: users and sessions
+CREATE TABLE IF NOT EXISTS users (
+    user_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    username       TEXT NOT NULL UNIQUE,
+    password_hash  TEXT NOT NULL,
+    password_salt  TEXT NOT NULL,
+    role           TEXT NOT NULL DEFAULT 'viewer',  -- admin | viewer
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token       TEXT PRIMARY KEY,
+    user_id     INTEGER NOT NULL,
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
 -- Full-text search support
 CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
     full_name,

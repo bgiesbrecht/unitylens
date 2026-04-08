@@ -56,6 +56,14 @@ def init_db(db_path: str | None = None) -> None:
             )
 
         conn.commit()
+
+        # Seed default users on first run.
+        try:
+            from unitylens.auth.service import seed_default_users
+
+            seed_default_users(conn)
+        except Exception:
+            logger.exception("Failed to seed default users")
         logger.info("Database initialized at %s", db_path or _resolve_db_path())
     finally:
         conn.close()

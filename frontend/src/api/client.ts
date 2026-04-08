@@ -12,16 +12,36 @@ import type {
 
 const BASE = '/api';
 
+export class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: (() => void) | null): void {
+  onUnauthorized = fn;
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     ...options,
   });
   if (!response.ok) {
+    if (response.status === 401 && onUnauthorized) {
+      onUnauthorized();
+    }
     const text = await response.text().catch(() => 'Unknown error');
-    throw new Error(`API error ${response.status}: ${text}`);
+    throw new ApiError(response.status, `API error ${response.status}: ${text}`);
   }
-  return response.json();
+  // Some endpoints (logout) may return empty body.
+  const ct = response.headers.get('content-type') || '';
+  if (ct.includes('application/json')) {
+    return response.json();
+  }
+  return undefined as unknown as T;
 }
 
 export async function getSources(): Promise<Source[]> {
@@ -164,6 +184,84 @@ export async function getHealth(): Promise<HealthCheck> {
 export async function getVersion(): Promise<string> {
   const raw = await request<{ version: string }>(`${BASE}/version`);
   return raw.version;
+}
+
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
+
+export interface AuthUser {
+  user_id: number;
+  username: string;
+  role: 'admin' | 'viewer';
+}
+
+export async function login(username: string, password: string): Promise<AuthUser> {
+  const raw = await request<{ user: AuthUser }>(`${BASE}/auth/login`, {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  });
+  return raw.user;
+}
+
+export async function logout(): Promise<void> {
+  await request<void>(`${BASE}/auth/logout`, { method: 'POST' });
+}
+
+export async function getMe(): Promise<AuthUser> {
+  return request<AuthUser>(`${BASE}/auth/me`);
+}
+
+export async function changeMyPassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  await request<void>(`${BASE}/auth/password`, {
+    method: 'POST',
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  });
+}
+
+export interface ManagedUser {
+  user_id: number;
+  username: string;
+  role: 'admin' | 'viewer';
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listUsers(): Promise<ManagedUser[]> {
+  return request<ManagedUser[]>(`${BASE}/auth/users`);
+}
+
+export async function createUser(
+  username: string,
+  password: string,
+  role: 'admin' | 'viewer',
+): Promise<ManagedUser> {
+  return request<ManagedUser>(`${BASE}/auth/users`, {
+    method: 'POST',
+    body: JSON.stringify({ username, password, role }),
+  });
+}
+
+export async function adminResetPassword(
+  username: string,
+  newPassword: string,
+): Promise<void> {
+  await request<void>(`${BASE}/auth/users/${encodeURIComponent(username)}/password`, {
+    method: 'POST',
+    body: JSON.stringify({ new_password: newPassword }),
+  });
+}
+
+export async function deleteUser(username: string): Promise<void> {
+  await request<void>(`${BASE}/auth/users/${encodeURIComponent(username)}`, {
+    method: 'DELETE',
+  });
 }
 
 export async function getStats(): Promise<DashboardStats> {

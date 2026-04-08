@@ -1,7 +1,25 @@
-import { useState } from 'react';
-import { RefreshCw, Play, AlertCircle, CheckCircle, FileText } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import {
+  RefreshCw,
+  Play,
+  AlertCircle,
+  CheckCircle,
+  FileText,
+  KeyRound,
+  Trash2,
+  UserPlus,
+} from 'lucide-react';
 import { useApi } from '../hooks/useApi';
-import { getSources, triggerCrawl, getSourceStatus } from '../api/client';
+import {
+  getSources,
+  triggerCrawl,
+  getSourceStatus,
+  listUsers,
+  createUser,
+  adminResetPassword,
+  deleteUser,
+  type ManagedUser,
+} from '../api/client';
 import { StatusBadge } from '../components/StatusBadge';
 import { DataTable } from '../components/DataTable';
 import { Skeleton } from '../components/Skeleton';
@@ -26,6 +44,71 @@ export function AdminPage() {
   const [logsForSource, setLogsForSource] = useState<string | null>(null);
   const [logEntries, setLogEntries] = useState<CrawlLogEntry[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
+
+  // ----- User management state -----
+  const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newRole, setNewRole] = useState<'admin' | 'viewer'>('viewer');
+  const [resetFor, setResetFor] = useState<string | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+
+  const refreshUsers = async () => {
+    setUsersLoading(true);
+    try {
+      setUsers(await listUsers());
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Failed to load users', 'error');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await createUser(newUsername.trim(), newPassword, newRole);
+      showToast(`Created user '${newUsername}'`, 'success');
+      setNewUsername('');
+      setNewPassword('');
+      setNewRole('viewer');
+      refreshUsers();
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Create failed', 'error');
+    }
+  };
+
+  const handleResetPassword = async (username: string) => {
+    if (!resetPassword || resetPassword.length < 4) {
+      showToast('Password must be at least 4 characters', 'error');
+      return;
+    }
+    try {
+      await adminResetPassword(username, resetPassword);
+      showToast(`Password updated for '${username}'`, 'success');
+      setResetFor(null);
+      setResetPassword('');
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Reset failed', 'error');
+    }
+  };
+
+  const handleDeleteUser = async (username: string) => {
+    if (!confirm(`Delete user '${username}'? This cannot be undone.`)) return;
+    try {
+      await deleteUser(username);
+      showToast(`Deleted user '${username}'`, 'success');
+      refreshUsers();
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Delete failed', 'error');
+    }
+  };
 
   const handleViewLogs = async (name: string) => {
     setLogsForSource(name);
@@ -239,6 +322,155 @@ export function AdminPage() {
                 data={(sources || []) as Source[]}
                 emptyMessage="No data sources configured"
               />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* User Management */}
+      <div className="admin-section">
+        <h2 className="admin-section-title">User Management</h2>
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-body" style={{ padding: 16 }}>
+            <form
+              onSubmit={handleCreateUser}
+              style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}
+            >
+              <div>
+                <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: 2 }}>
+                  Username
+                </label>
+                <input
+                  type="text"
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value)}
+                  required
+                  minLength={1}
+                  style={{ padding: '6px 10px', border: '1px solid var(--border, #d8dde6)', borderRadius: 6 }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: 2 }}>
+                  Password
+                </label>
+                <input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                  minLength={4}
+                  style={{ padding: '6px 10px', border: '1px solid var(--border, #d8dde6)', borderRadius: 6 }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: 2 }}>
+                  Role
+                </label>
+                <select
+                  value={newRole}
+                  onChange={(e) => setNewRole(e.target.value as 'admin' | 'viewer')}
+                  style={{ padding: '6px 10px', border: '1px solid var(--border, #d8dde6)', borderRadius: 6 }}
+                >
+                  <option value="viewer">viewer</option>
+                  <option value="admin">admin</option>
+                </select>
+              </div>
+              <button type="submit" className="btn btn-primary btn-sm">
+                <UserPlus size={12} />
+                Create User
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-body" style={{ padding: 0 }}>
+            {usersLoading ? (
+              <div style={{ padding: 24 }}>
+                <Skeleton variant="row" count={2} />
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border, #e5e7eb)' }}>
+                    <th style={{ padding: '10px 16px', fontSize: '0.78rem' }}>Username</th>
+                    <th style={{ padding: '10px 16px', fontSize: '0.78rem' }}>Role</th>
+                    <th style={{ padding: '10px 16px', fontSize: '0.78rem' }}>Created</th>
+                    <th style={{ padding: '10px 16px', fontSize: '0.78rem' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((u) => (
+                    <tr key={u.user_id} style={{ borderBottom: '1px solid var(--border, #f3f4f6)' }}>
+                      <td style={{ padding: '10px 16px', fontWeight: 500 }}>{u.username}</td>
+                      <td style={{ padding: '10px 16px' }}>{u.role}</td>
+                      <td style={{ padding: '10px 16px', fontSize: '0.8rem', opacity: 0.7 }}>
+                        {formatTime(u.created_at)}
+                      </td>
+                      <td style={{ padding: '10px 16px' }}>
+                        {resetFor === u.username ? (
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <input
+                              type="password"
+                              placeholder="new password"
+                              value={resetPassword}
+                              onChange={(e) => setResetPassword(e.target.value)}
+                              style={{
+                                padding: '4px 8px',
+                                fontSize: '0.8rem',
+                                border: '1px solid var(--border, #d8dde6)',
+                                borderRadius: 5,
+                              }}
+                            />
+                            <button
+                              className="btn btn-primary btn-sm"
+                              onClick={() => handleResetPassword(u.username)}
+                            >
+                              Save
+                            </button>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => {
+                                setResetFor(null);
+                                setResetPassword('');
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => {
+                                setResetFor(u.username);
+                                setResetPassword('');
+                              }}
+                            >
+                              <KeyRound size={12} />
+                              Reset Password
+                            </button>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => handleDeleteUser(u.username)}
+                            >
+                              <Trash2 size={12} />
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {users.length === 0 && (
+                    <tr>
+                      <td colSpan={4} style={{ padding: 24, textAlign: 'center', opacity: 0.6 }}>
+                        No users.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             )}
           </div>
         </div>

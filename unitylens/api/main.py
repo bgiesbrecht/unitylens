@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from unitylens.api.routes import admin, browse, search
+from unitylens.api.routes import admin, auth, browse, search
 from unitylens.config.settings import get_settings, load_sources_config
 from unitylens.context.builder import build_context
 from unitylens.llm.client import init_llm_client
@@ -110,6 +110,7 @@ def create_app() -> FastAPI:
     )
 
     # API routes
+    app.include_router(auth.router)
     app.include_router(browse.router)
     app.include_router(search.router)
     app.include_router(admin.router)

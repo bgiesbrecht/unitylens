@@ -4,15 +4,20 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from unitylens.auth.deps import current_user
 from unitylens.context.builder import get_cached_context
 from unitylens.llm.client import get_llm_client
 from unitylens.store import db
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["search"])
+router = APIRouter(
+    prefix="/api",
+    tags=["search"],
+    dependencies=[Depends(current_user)],
+)
 
 
 @router.get("/search")

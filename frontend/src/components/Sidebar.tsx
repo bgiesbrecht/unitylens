@@ -6,37 +6,52 @@ import {
   Search,
   Settings,
   ScanSearch,
-  BookOpen,
   TableProperties,
+  LogOut,
 } from 'lucide-react';
 import { Link } from '../router';
 import { getVersion } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
 
 interface SidebarProps {
   open: boolean;
   onClose: () => void;
 }
 
-const NAV_ITEMS = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/sources', icon: Database, label: 'Sources' },
-  { to: '/catalogs', icon: BookOpen, label: 'Catalogs' },
-  { to: '/dictionary', icon: TableProperties, label: 'Data Dictionary' },
-  { to: '/browse', icon: FolderTree, label: 'Browse Catalog' },
-  { to: '/search', icon: Search, label: 'Search' },
+type Role = 'admin' | 'viewer';
+
+interface NavItem {
+  to: string;
+  icon: typeof LayoutDashboard;
+  label: string;
+  roles: Role[];
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin'] },
+  { to: '/sources', icon: Database, label: 'Sources', roles: ['admin'] },
+  { to: '/dictionary', icon: TableProperties, label: 'Data Dictionary', roles: ['admin', 'viewer'] },
+  { to: '/browse', icon: FolderTree, label: 'Browse Catalog', roles: ['admin', 'viewer'] },
+  { to: '/search', icon: Search, label: 'Search', roles: ['admin', 'viewer'] },
 ];
 
-const ADMIN_ITEMS = [
-  { to: '/admin', icon: Settings, label: 'Admin' },
+const ADMIN_ITEMS: NavItem[] = [
+  { to: '/admin', icon: Settings, label: 'Admin', roles: ['admin'] },
 ];
 
 export function Sidebar({ open, onClose }: SidebarProps) {
+  const { user, logout } = useAuth();
   const [version, setVersion] = useState<string>('');
+
   useEffect(() => {
     getVersion()
       .then((v) => setVersion(v))
       .catch(() => setVersion(''));
   }, []);
+
+  const role: Role | null = (user?.role as Role | undefined) || null;
+  const navItems = role ? NAV_ITEMS.filter((i) => i.roles.includes(role)) : [];
+  const adminItems = role ? ADMIN_ITEMS.filter((i) => i.roles.includes(role)) : [];
 
   return (
     <>
@@ -54,7 +69,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
         <nav className="sidebar-nav">
           <div className="sidebar-nav-section">Navigation</div>
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <Link
               key={item.to}
               to={item.to}
@@ -67,25 +82,67 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             </Link>
           ))}
 
-          <div className="sidebar-nav-section" style={{ marginTop: 12 }}>
-            Administration
-          </div>
-          {ADMIN_ITEMS.map((item) => (
-            <Link
-              key={item.to}
-              to={item.to}
-              className="sidebar-link"
-              activeClassName="active"
-              onClick={onClose}
-            >
-              <item.icon size={18} />
-              {item.label}
-            </Link>
-          ))}
+          {adminItems.length > 0 && (
+            <>
+              <div className="sidebar-nav-section" style={{ marginTop: 12 }}>
+                Administration
+              </div>
+              {adminItems.map((item) => (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className="sidebar-link"
+                  activeClassName="active"
+                  onClick={onClose}
+                >
+                  <item.icon size={18} />
+                  {item.label}
+                </Link>
+              ))}
+            </>
+          )}
         </nav>
 
         <div className="sidebar-footer">
-          UnityLens{version ? ` v${version}` : ''}
+          {user && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 6,
+                gap: 8,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: '0.78rem',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+                title={`${user.username} (${user.role})`}
+              >
+                {user.username} · {user.role}
+              </span>
+              <button
+                onClick={() => logout()}
+                title="Sign out"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                  padding: 4,
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                <LogOut size={14} />
+              </button>
+            </div>
+          )}
+          <div>UnityLens{version ? ` v${version}` : ''}</div>
         </div>
       </aside>
     </>
