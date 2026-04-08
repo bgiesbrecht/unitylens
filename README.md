@@ -5,21 +5,28 @@ A cross-platform metadata catalog browser for Databricks Unity Catalog, Snowflak
 ## Features
 
 - Pluggable `DataSource` architecture — add a new source type by subclassing one base class.
+- First-class connectors for **Databricks Unity Catalog** and **Oracle Database** (Snowflake stub).
 - Incremental per-catalog crawling with real-time UI updates.
 - Hierarchical browse (Source → Catalog → Schema → Table → Column) with deep-link auto-expansion.
 - Flat "data dictionary" view with search and filters across all tables.
 - Natural-language search powered by SQLite FTS5 with stop-word filtering.
 - Background scheduler (APScheduler) for periodic crawls.
+- **Database-backed authentication** with `admin` and `viewer` roles, HTTP-only session cookies, and an in-app User Management screen.
+- **Per-source crawl logs** with structured `info`/`warn`/`error` entries surfaced in the Admin UI.
+- **Sliding 7-day sessions** stored in SQLite — no JWT, no extra dependencies.
 
 ## Architecture
 
 ```
 React + Vite (frontend/)  ->  FastAPI (unitylens/api/)  ->  SQLite store (unitylens/store/)
-                                         |
-                                         v
-                              DataSource plugins
-                              (unitylens/sources/*)
+       |                              |
+       v                              +--> auth (users, sessions, roles)
+   AuthProvider                       |
+   role-filtered nav                  +--> DataSource plugins
+                                            (unitylens/sources/*)
 ```
+
+The same SQLite database holds metadata (`sources`, `catalogs`, `schemas`, `tables`, `columns`, `search_index`) **and** auth state (`users`, `sessions`). Schema migrations run idempotently on startup.
 
 ## Setup
 
@@ -45,7 +52,7 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Add per-source drivers as needed, e.g. `pip install oracledb` for Oracle.
+All connector drivers (`databricks-sdk`, `oracledb`) are pinned in `requirements.txt`, so a single `pip install -r requirements.txt` covers every source.
 
 ### 3. Build the frontend
 
@@ -80,7 +87,41 @@ set -a && source .env && set +a
 python -m uvicorn unitylens.api.main:app --host 0.0.0.0 --port 8000
 ```
 
-Open <http://localhost:8000>. From the **Admin** page click **Run crawl** (or `curl -X POST http://localhost:8000/api/admin/crawl`) to populate the catalog. Tables will appear in the dashboard, browse tree, and dictionary as each catalog finishes.
+Open <http://localhost:8000>. The first request shows a login screen.
+
+### Default accounts
+
+On first startup, if the `users` table is empty, UnityLens seeds two accounts and logs a warning:
+
+| Username | Password   | Role   | Visible pages                                          |
+|----------|------------|--------|--------------------------------------------------------|
+| `admin`  | `adminpwd` | admin  | Dashboard, Sources, Data Dictionary, Browse, Search, Admin |
+| `public` | `public`   | viewer | Data Dictionary, Browse, Search                        |
+
+To set non-default passwords on the *first* run, export them before starting the server:
+
+```bash
+export UNITYLENS_ADMIN_PASSWORD="something-strong"
+export UNITYLENS_VIEWER_PASSWORD="something-else"
+```
+
+After the initial seed, change passwords from the **Admin → User Management** screen, where admins can also create new users, reset passwords, and delete accounts.
+
+> **Production note:** the session cookie is currently set with `Secure=False` so it works on plain `http://localhost`. Before deploying behind HTTPS, flip it to `Secure=True` in `unitylens/api/routes/auth.py`.
+
+### Triggering a crawl
+
+Sign in as `admin`, open the **Admin** page, and click **Crawl** for any source — or:
+
+```bash
+curl -c cookies.txt -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"adminpwd"}'
+
+curl -b cookies.txt -X POST http://localhost:8000/api/admin/crawl/local_oracle
+```
+
+Tables appear in the Dashboard, Browse tree, and Data Dictionary as each catalog finishes. Per-source crawl logs are visible from the **Logs** button on the Admin page.
 
 For production-style runs, use Gunicorn with the bundled config:
 
@@ -90,7 +131,7 @@ gunicorn unitylens.api.main:app -k uvicorn.workers.UvicornWorker -c gunicorn.con
 
 ## Configuring data sources
 
-All sources are declared in [`unitylens/config/sources.yaml`](unitylens/config/sources.yaml). Values of the form `${VAR}` are interpolated from environment variables at load time, so secrets stay out of the repo.
+All sources are declared in [`unitylens/config/sources.yaml`](unitylens/config/sources.yaml). Values of the form `${VAR}` are interpolated from environment variables at load time, and `${VAR:-default}` is supported for local-dev fallbacks (production credentials should always come from real env vars). Secrets stay out of the repo.
 
 ### Databricks Unity Catalog
 
@@ -129,39 +170,54 @@ UnityLens uses the Databricks SDK with your personal access token, so it sees ex
 
 ### Oracle Database
 
-> **Status:** the Oracle source is a structural stub — the crawl interface is wired up but the connector logic is not yet implemented. The steps below describe the intended setup.
+UnityLens uses [`python-oracledb`](https://python-oracledb.readthedocs.io/) in **thin mode** — no Oracle Instant Client install required.
 
-1. **Install the driver:**
+1. **Driver** is included in `requirements.txt` (`oracledb>=2.0.0`); no extra install step.
 
-   ```bash
-   pip install oracledb
-   ```
-
-2. **Get connection details** from your DBA. You'll need:
-   - **DSN** — either an Easy Connect string (`host:port/service_name`, e.g. `db01.example.com:1521/ORCLPDB1`) or a full TNS descriptor.
-   - **User** with `SELECT` on `ALL_USERS`, `ALL_TABLES`, and `ALL_TAB_COLUMNS` (read-only is enough; `SELECT_CATALOG_ROLE` covers it).
+2. **Get connection details:**
+   - **DSN** — Easy Connect (`host:port/service_name`, e.g. `localhost:1521/FREEPDB1`) or a full TNS descriptor.
+   - **User** with read access to `ALL_USERS`, `ALL_TABLES`, `ALL_VIEWS`, `ALL_TAB_COLUMNS`, `ALL_TAB_COMMENTS`, and `ALL_COL_COMMENTS`. `SELECT_CATALOG_ROLE` is sufficient.
    - **Password**.
 
-3. **Export env vars:**
+3. **Per-source env vars** — namespace by source name so you can run multiple Oracle databases side by side:
 
    ```bash
-   export ORACLE_DSN="db01.example.com:1521/ORCLPDB1"
-   export ORACLE_USER="unitylens_reader"
-   export ORACLE_PASSWORD="••••••••"
+   export ORACLE_LOCAL_DSN="localhost:1521/FREEPDB1"
+   export ORACLE_LOCAL_USER="system"
+   export ORACLE_LOCAL_PASSWORD="••••••••"
    ```
 
-4. **Enable the source** in `sources.yaml`:
+4. **Add the source** in `sources.yaml`:
 
    ```yaml
    sources:
-     - name: prod_oracle
+     - name: local_oracle
        type: oracle
-       dsn: ${ORACLE_DSN}
-       user: ${ORACLE_USER}
-       password: ${ORACLE_PASSWORD}
+       dsn: ${ORACLE_LOCAL_DSN:-localhost:1521/FREEPDB1}
+       user: ${ORACLE_LOCAL_USER:-system}
+       password: ${ORACLE_LOCAL_PASSWORD:-password123}
+       include_views: true
+       schema_filter: [GEO, SOLAR]   # optional; empty/omitted = all non-system schemas
    ```
 
-5. Restart and trigger a crawl. Oracle has no "catalog" concept in the Unity Catalog sense, so the database/service name maps to a single synthetic catalog and Oracle schemas (users) map to UnityLens schemas.
+5. **Sign in as `admin`** and trigger a crawl from the Admin page (or `POST /api/admin/crawl/local_oracle`).
+
+**Mapping:** Oracle has no "catalog" concept, so the connector surfaces a single synthetic catalog named after the service (parsed from the DSN, e.g. `FREEPDB1`). Oracle schemas (users) become UnityLens schemas. System schemas (`SYS`, `SYSTEM`, `XDB`, etc.) are skipped by default — set `include_system_schemas: true` to include them.
+
+**Comments are first-class:** the connector pulls `ALL_TAB_COMMENTS` and `ALL_COL_COMMENTS` and stores them as table/column descriptions. Edit comments with native Oracle DDL (`COMMENT ON TABLE …`, `COMMENT ON COLUMN …`) and re-crawl to refresh.
+
+### Quick local Oracle for testing
+
+The official `gvenzl/oracle-free` image is the fastest way to get a local Oracle database for trying UnityLens:
+
+```bash
+docker run -d --name oracle-free \
+  -p 1521:1521 \
+  -e ORACLE_PASSWORD=password123 \
+  gvenzl/oracle-free
+```
+
+It exposes service `FREEPDB1` on port 1521; the defaults in the example `local_oracle` block above match it out of the box.
 
 ## Development
 
@@ -183,12 +239,40 @@ cd frontend && npm run build
 
 ```
 unitylens/
-  api/            FastAPI routes (browse, admin, dictionary, stats)
-  config/         sources.yaml + settings loader
-  crawler/        Crawl orchestrator + APScheduler job
-  sources/        DataSource plugins (databricks, snowflake, oracle)
-  store/          SQLite schema, FTS5 search, CRUD
+  __init__.py     __version__ — single source of truth (exposed via /api/version)
+  api/
+    main.py       FastAPI app, lifespan, CORS, static mount
+    routes/       browse, search, admin (admin-only), auth (login, users)
+  auth/           pbkdf2 password hashing, sessions, role-based deps
+  config/         sources.yaml + settings loader (${VAR:-default} interpolation)
+  crawler/        Crawl orchestrator + APScheduler job (per-source structured logs)
+  sources/        DataSource plugins (databricks, oracle, snowflake stub)
+  store/          SQLite schema, FTS5 search, CRUD, idempotent migrations
   static/         Built frontend (generated)
-frontend/         React + TypeScript + Vite UI
+frontend/
+  src/
+    auth/         AuthProvider, AuthGate, useAuth
+    pages/        Dashboard, Sources, Browse, Dictionary, Search, Admin, Login
+    components/   Sidebar (role-filtered), DataTable, etc.
+    api/client.ts Cookie-aware fetch + typed API helpers
 requirements.txt
 ```
+
+## API surface
+
+| Endpoint                                | Auth          | Notes                                |
+|-----------------------------------------|---------------|--------------------------------------|
+| `GET  /api/health`                      | public        | liveness, returns version            |
+| `GET  /api/version`                     | public        | `{ "version": "x.y.z" }`             |
+| `POST /api/auth/login`                  | public        | sets HTTP-only session cookie        |
+| `POST /api/auth/logout`                 | authenticated | clears cookie + invalidates sessions |
+| `GET  /api/auth/me`                     | authenticated | current user                         |
+| `POST /api/auth/password`               | authenticated | change own password                  |
+| `GET  /api/auth/users`                  | admin         | list users                           |
+| `POST /api/auth/users`                  | admin         | create user                          |
+| `POST /api/auth/users/{u}/password`     | admin         | reset another user's password        |
+| `DELETE /api/auth/users/{u}`            | admin         | delete user (self-delete blocked)    |
+| `GET  /api/sources`                     | authenticated | merged YAML + DB view                |
+| `GET  /api/browse/...`, `/api/dictionary`, `/api/search`, `/api/stats` | authenticated | metadata browsing |
+| `POST /api/admin/crawl[/{source}]`      | admin         | trigger background crawl             |
+| `GET  /api/admin/sources/{name}/status` | admin         | per-source status + structured log   |
