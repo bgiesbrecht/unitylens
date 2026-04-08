@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS sources (
     last_crawl_at TEXT,                       -- ISO-8601 timestamp
     last_status   TEXT NOT NULL DEFAULT 'idle', -- idle | running | success | error
     last_error    TEXT NOT NULL DEFAULT '',
-    config_json   TEXT NOT NULL DEFAULT '{}'
+    config_json   TEXT NOT NULL DEFAULT '{}',
+    crawl_log     TEXT NOT NULL DEFAULT '[]'  -- JSON array of {ts, level, message}
 );
 
 CREATE TABLE IF NOT EXISTS catalogs (

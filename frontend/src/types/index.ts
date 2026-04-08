@@ -1,11 +1,18 @@
+export interface CrawlLogEntry {
+  ts: string;
+  level: 'info' | 'warn' | 'error' | string;
+  message: string;
+}
+
 export interface Source {
   name: string;
   type: 'databricks' | 'snowflake' | 'oracle' | string;
-  status: 'connected' | 'error' | 'crawling' | 'unknown';
+  status: 'connected' | 'error' | 'crawling' | 'unknown' | 'not_crawled';
   last_crawled?: string;
   catalogs_count?: number;
   tables_count?: number;
   host?: string;
+  crawl_log?: CrawlLogEntry[];
 }
 
 export interface Catalog {
@@ -78,4 +85,5 @@ export interface SourceStatus {
   status: string;
   message?: string;
   last_checked?: string;
+  crawl_log?: CrawlLogEntry[];
 }

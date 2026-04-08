@@ -34,8 +34,20 @@ def crawl_source(source: DataSource) -> dict[str, Any]:
         "error": "",
     }
 
+    crawl_log: list[dict[str, Any]] = []
+
+    def log(level: str, message: str) -> None:
+        crawl_log.append(
+            {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "level": level,
+                "message": message,
+            }
+        )
+
     try:
         db.update_source_status(conn, name, "running")
+        log("info", f"Starting crawl for source '{name}'")
         # Clear old data for this source upfront
         db.delete_source_data(conn, name)
         conn.commit()
@@ -62,8 +74,21 @@ def crawl_source(source: DataSource) -> dict[str, Any]:
                 schemas = source.crawl_schemas(cat.catalog_name)
                 db.insert_schemas(conn, schemas)
                 total_schemas += len(schemas)
-            except Exception:
-                logger.warning("Error listing schemas for '%s', skipping", cat.catalog_name)
+                log(
+                    "info",
+                    f"Crawled {len(schemas)} schemas in catalog '{cat.catalog_name}'",
+                )
+            except Exception as exc:
+                detail = f"{type(exc).__name__}: {exc}"
+                logger.warning(
+                    "Error listing schemas for '%s': %s",
+                    cat.catalog_name, detail, exc_info=True,
+                )
+                log(
+                    "error",
+                    f"crawl_schemas('{cat.catalog_name}') failed: {detail}",
+                )
+                summary["status"] = "error"
                 continue
 
             try:
@@ -74,19 +99,33 @@ def crawl_source(source: DataSource) -> dict[str, Any]:
                     db.insert_columns(conn, columns)
                 total_tables += len(tables)
                 total_columns += len(columns)
+                log(
+                    "info",
+                    f"Crawled {len(tables)} tables / {len(columns)} columns "
+                    f"in catalog '{cat.catalog_name}'",
+                )
             except Exception as exc:
                 err_str = str(exc)
+                detail = f"{type(exc).__name__}: {err_str}"
                 if "INSUFFICIENT_PERMISSIONS" in err_str:
                     logger.info(
                         "Skipping catalog '%s' (no USE CATALOG permission)",
                         cat.catalog_name,
                     )
+                    log(
+                        "warn",
+                        f"Skipped catalog '{cat.catalog_name}': insufficient permissions",
+                    )
                 else:
                     logger.warning(
                         "Error crawling tables for catalog '%s': %s",
-                        cat.catalog_name,
-                        str(exc)[:200],
+                        cat.catalog_name, detail, exc_info=True,
                     )
+                    log(
+                        "error",
+                        f"crawl_tables('{cat.catalog_name}') failed: {detail}",
+                    )
+                    summary["status"] = "error"
 
             # Commit after each catalog so data appears incrementally
             conn.commit()
@@ -98,13 +137,21 @@ def crawl_source(source: DataSource) -> dict[str, Any]:
         # Rebuild search index
         try:
             db.rebuild_search_index(conn)
-        except Exception:
-            logger.warning("Failed to rebuild search index, continuing")
+        except Exception as exc:
+            logger.warning("Failed to rebuild search index, continuing", exc_info=True)
+            log("warn", f"Search index rebuild failed: {type(exc).__name__}: {exc}")
 
         now = datetime.now(timezone.utc).isoformat()
-        db.update_source_status(conn, name, "success", crawl_time=now)
+        final_status = "success" if summary["status"] == "success" else "error"
+        db.update_source_status(conn, name, final_status, crawl_time=now)
         conn.commit()
 
+        log(
+            "info",
+            f"Crawl complete: {summary['catalogs']} catalogs, "
+            f"{total_schemas} schemas, {total_tables} tables, "
+            f"{total_columns} columns",
+        )
         logger.info(
             "Crawl complete for '%s': %d catalogs, %d schemas, %d tables, %d columns",
             name,
@@ -120,8 +167,16 @@ def crawl_source(source: DataSource) -> dict[str, Any]:
         summary["status"] = "error"
         summary["error"] = error_msg
         logger.exception("Crawl failed for source '%s'", name)
+        log("error", f"Crawl aborted: {error_msg}")
+        log("error", traceback.format_exc(limit=5))
 
     finally:
+        # Persist the structured crawl log regardless of outcome.
+        try:
+            db.update_source_log(conn, name, crawl_log)
+            conn.commit()
+        except Exception:
+            logger.exception("Failed to persist crawl log for '%s'", name)
         # Always ensure status is not stuck on "running"
         try:
             current = db.get_source_status(conn, name)

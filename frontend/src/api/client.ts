@@ -29,9 +29,21 @@ export async function getSources(): Promise<Source[]> {
   return raw.map((s) => ({
     name: s.source_name,
     type: s.source_type,
-    status: s.last_status === 'success' ? 'connected' : s.last_status === 'running' ? 'crawling' : s.last_status === 'error' ? 'error' : s.last_status === 'connected' ? 'connected' : 'unknown',
+    status:
+      s.last_status === 'success'
+        ? 'connected'
+        : s.last_status === 'running'
+        ? 'crawling'
+        : s.last_status === 'error'
+        ? 'error'
+        : s.last_status === 'connected'
+        ? 'connected'
+        : s.last_status === 'not_crawled'
+        ? 'not_crawled'
+        : 'unknown',
     last_crawled: s.last_crawl_at,
     host: s.host,
+    crawl_log: Array.isArray(s.crawl_log) ? s.crawl_log : [],
   }));
 }
 
@@ -141,11 +153,17 @@ export async function getSourceStatus(name: string): Promise<SourceStatus> {
     status: raw.last_status,
     message: raw.last_error,
     last_checked: raw.last_crawl_at,
+    crawl_log: Array.isArray(raw.crawl_log) ? raw.crawl_log : [],
   };
 }
 
 export async function getHealth(): Promise<HealthCheck> {
   return request<HealthCheck>(`${BASE}/health`);
+}
+
+export async function getVersion(): Promise<string> {
+  const raw = await request<{ version: string }>(`${BASE}/version`);
+  return raw.version;
 }
 
 export async function getStats(): Promise<DashboardStats> {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
+from unitylens.config.settings import load_sources_config
 from unitylens.store import db
 
 router = APIRouter(prefix="/api", tags=["browse"])
@@ -142,12 +143,51 @@ def get_catalogs_detail(source: str | None = None) -> list[dict]:
 
 @router.get("/sources")
 def get_sources() -> list[dict]:
-    """List all registered data sources and their crawl status."""
+    """List all configured data sources and their crawl status.
+
+    Merges sources defined in ``sources.yaml`` with the SQLite ``sources``
+    table so that configured-but-not-yet-crawled sources still appear in
+    the UI (with ``last_status`` of ``"not_crawled"``).
+    """
+    import json as _json
+
     conn = db.get_connection()
     try:
-        return db.list_sources(conn)
+        crawled = {row["source_name"]: dict(row) for row in db.list_sources(conn)}
     finally:
         conn.close()
+
+    # Decode the crawl_log JSON column for any rows that include it.
+    for row in crawled.values():
+        raw_log = row.get("crawl_log") or "[]"
+        try:
+            row["crawl_log"] = _json.loads(raw_log)
+        except Exception:
+            row["crawl_log"] = []
+
+    configured = load_sources_config()
+    merged: list[dict] = []
+    for name, cfg in configured.items():
+        if name in crawled:
+            merged.append(crawled.pop(name))
+            continue
+        merged.append(
+            {
+                "source_name": name,
+                "source_type": cfg.get("type", ""),
+                "host": cfg.get("host") or cfg.get("dsn") or cfg.get("url") or "",
+                "last_crawl_at": None,
+                "last_status": "not_crawled",
+                "last_error": None,
+            }
+        )
+
+    # Any sources still in `crawled` are present in the DB but no longer
+    # in the YAML — surface them too so users can see orphaned data.
+    for row in crawled.values():
+        merged.append(row)
+
+    return merged
 
 
 @router.get("/catalogs")

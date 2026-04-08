@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { RefreshCw, Play, AlertCircle, CheckCircle } from 'lucide-react';
+import { RefreshCw, Play, AlertCircle, CheckCircle, FileText } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { getSources, triggerCrawl, getSourceStatus } from '../api/client';
 import { StatusBadge } from '../components/StatusBadge';
 import { DataTable } from '../components/DataTable';
 import { Skeleton } from '../components/Skeleton';
-import type { Source, SourceStatus } from '../types';
+import type { Source, SourceStatus, CrawlLogEntry } from '../types';
 
 function formatTime(t?: string) {
   if (!t) return 'Never';
@@ -23,6 +23,22 @@ export function AdminPage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [healthResults, setHealthResults] = useState<Record<string, SourceStatus>>({});
   const [checkingHealth, setCheckingHealth] = useState<Record<string, boolean>>({});
+  const [logsForSource, setLogsForSource] = useState<string | null>(null);
+  const [logEntries, setLogEntries] = useState<CrawlLogEntry[]>([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+
+  const handleViewLogs = async (name: string) => {
+    setLogsForSource(name);
+    setLoadingLogs(true);
+    try {
+      const status = await getSourceStatus(name);
+      setLogEntries(status.crawl_log || []);
+    } catch {
+      setLogEntries([]);
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
 
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type });
@@ -145,21 +161,33 @@ export function AdminPage() {
       key: 'actions',
       header: 'Actions',
       render: (row: Source) => (
-        <button
-          className="btn btn-primary btn-sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleCrawlSource(row.name);
-          }}
-          disabled={crawling[row.name]}
-        >
-          {crawling[row.name] ? (
-            <span className="spinner spinner-sm" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: 'white' }} />
-          ) : (
-            <Play size={12} />
-          )}
-          Crawl
-        </button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleCrawlSource(row.name);
+            }}
+            disabled={crawling[row.name]}
+          >
+            {crawling[row.name] ? (
+              <span className="spinner spinner-sm" style={{ borderColor: 'rgba(255,255,255,0.3)', borderTopColor: 'white' }} />
+            ) : (
+              <Play size={12} />
+            )}
+            Crawl
+          </button>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleViewLogs(row.name);
+            }}
+          >
+            <FileText size={12} />
+            Logs
+          </button>
+        </div>
       ),
     },
   ];
@@ -215,6 +243,104 @@ export function AdminPage() {
           </div>
         </div>
       </div>
+
+      {/* Crawl Logs Panel */}
+      {logsForSource && (
+        <div className="admin-section">
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 8,
+            }}
+          >
+            <h2 className="admin-section-title" style={{ margin: 0 }}>
+              Crawl Logs — {logsForSource}
+            </h2>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => handleViewLogs(logsForSource)}
+                disabled={loadingLogs}
+              >
+                <RefreshCw size={12} />
+                Refresh
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  setLogsForSource(null);
+                  setLogEntries([]);
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+          <div className="card">
+            <div
+              className="card-body"
+              style={{
+                padding: 12,
+                minHeight: 240,
+                maxHeight: 600,
+                overflowY: 'auto',
+                fontFamily:
+                  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                fontSize: '0.8rem',
+                lineHeight: 1.5,
+                background: '#0d1117',
+                color: '#e6edf3',
+              }}
+            >
+              {loadingLogs ? (
+                <div>Loading logs…</div>
+              ) : logEntries.length === 0 ? (
+                <div style={{ opacity: 0.7 }}>
+                  No log entries yet. Trigger a crawl to populate.
+                </div>
+              ) : (
+                logEntries.map((entry, i) => {
+                  const color =
+                    entry.level === 'error'
+                      ? 'var(--status-red, #f85149)'
+                      : entry.level === 'warn'
+                      ? 'var(--status-yellow, #d29922)'
+                      : 'var(--status-green, #3fb950)';
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        display: 'flex',
+                        gap: 10,
+                        padding: '2px 0',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                      }}
+                    >
+                      <span style={{ color: '#8b949e' }}>
+                        {entry.ts ? new Date(entry.ts).toLocaleTimeString() : ''}
+                      </span>
+                      <span
+                        style={{
+                          color,
+                          fontWeight: 600,
+                          minWidth: 44,
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        {entry.level}
+                      </span>
+                      <span style={{ flex: 1, color: '#e6edf3' }}>{entry.message}</span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && <div className={`toast ${toast.type}`}>{toast.message}</div>}
     </div>

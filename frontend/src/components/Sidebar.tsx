@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   LayoutDashboard,
   Database,
@@ -9,6 +10,7 @@ import {
   TableProperties,
 } from 'lucide-react';
 import { Link } from '../router';
+import { getVersion } from '../api/client';
 
 interface SidebarProps {
   open: boolean;
@@ -29,6 +31,13 @@ const ADMIN_ITEMS = [
 ];
 
 export function Sidebar({ open, onClose }: SidebarProps) {
+  const [version, setVersion] = useState<string>('');
+  useEffect(() => {
+    getVersion()
+      .then((v) => setVersion(v))
+      .catch(() => setVersion(''));
+  }, []);
+
   return (
     <>
       {open && <div className="sidebar-overlay" onClick={onClose} />}
@@ -76,7 +85,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         </nav>
 
         <div className="sidebar-footer">
-          UnityLens v0.1.0
+          UnityLens{version ? ` v${version}` : ''}
         </div>
       </aside>
     </>

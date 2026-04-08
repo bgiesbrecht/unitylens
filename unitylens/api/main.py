@@ -91,10 +91,12 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     settings = get_settings()
 
+    from unitylens import __version__
+
     app = FastAPI(
         title="UnityLens",
         description="Cross-platform metadata catalog and search API",
-        version="0.1.0",
+        version=__version__,
         lifespan=lifespan,
     )
 
@@ -115,7 +117,11 @@ def create_app() -> FastAPI:
     # Health check
     @app.get("/api/health", tags=["health"])
     def health() -> dict:
-        return {"status": "healthy", "service": "unitylens"}
+        return {"status": "healthy", "service": "unitylens", "version": __version__}
+
+    @app.get("/api/version", tags=["health"])
+    def version() -> dict:
+        return {"version": __version__}
 
     # Serve frontend static files from / (must be last)
     static_dir = settings.static_dir

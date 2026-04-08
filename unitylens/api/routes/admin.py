@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -75,6 +76,12 @@ def get_source_status(source_name: str) -> dict:
                 status_code=404,
                 detail=f"Source '{source_name}' not found",
             )
+        # crawl_log is stored as a JSON string; decode for clients.
+        raw_log = status.get("crawl_log") or "[]"
+        try:
+            status["crawl_log"] = json.loads(raw_log)
+        except Exception:
+            status["crawl_log"] = []
         return status
     finally:
         conn.close()

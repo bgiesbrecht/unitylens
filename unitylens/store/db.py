@@ -41,14 +41,34 @@ def get_connection(db_path: str | None = None) -> sqlite3.Connection:
 
 
 def init_db(db_path: str | None = None) -> None:
-    """Create all tables if they do not exist."""
+    """Create all tables if they do not exist and run lightweight migrations."""
     conn = get_connection(db_path)
     try:
         conn.executescript(_SCHEMA_SQL)
+
+        # Idempotent column adds for pre-existing databases.
+        existing_cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(sources)").fetchall()
+        }
+        if "crawl_log" not in existing_cols:
+            conn.execute(
+                "ALTER TABLE sources ADD COLUMN crawl_log TEXT NOT NULL DEFAULT '[]'"
+            )
+
         conn.commit()
         logger.info("Database initialized at %s", db_path or _resolve_db_path())
     finally:
         conn.close()
+
+
+def update_source_log(
+    conn: sqlite3.Connection, source_name: str, entries: list[dict[str, Any]]
+) -> None:
+    """Persist the crawl log for a source as a JSON array."""
+    conn.execute(
+        "UPDATE sources SET crawl_log = ? WHERE source_name = ?",
+        (json.dumps(entries), source_name),
+    )
 
 
 # ------------------------------------------------------------------
@@ -252,7 +272,7 @@ def _rows_to_dicts(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
 
 def list_sources(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
-        "SELECT source_name, source_type, host, last_crawl_at, last_status, last_error FROM sources"
+        "SELECT source_name, source_type, host, last_crawl_at, last_status, last_error, crawl_log FROM sources"
     ).fetchall()
     return _rows_to_dicts(rows)
 

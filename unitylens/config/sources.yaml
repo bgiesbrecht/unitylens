@@ -10,7 +10,7 @@ sources:
     host: ${DATABRICKS_HOST}
     token: ${DATABRICKS_TOKEN}
     warehouse_id: ${DATABRICKS_WAREHOUSE_ID}
-    catalog_filter: []  # Empty = all catalogs. Add names to restrict, e.g. [bg, clinical]
+    catalog_filter: [bg]  # Only crawl catalogs owned by brice.giesbrecht@databricks.com
     deny_tags: {}
     allow_tags: {}
 
@@ -23,9 +23,28 @@ sources:
   #   warehouse: ${SNOWFLAKE_WAREHOUSE}
   #   role: ${SNOWFLAKE_ROLE}
 
-  # Example Oracle source (uncomment when ready):
+  # Oracle sources.
+  #
+  # Each Oracle database is its own entry. Namespace env vars by source
+  # name so multiple Oracle databases can coexist:
+  #   ORACLE_<SOURCE>_DSN / _USER / _PASSWORD
+  #
+  # The ${VAR:-default} syntax provides a fallback for local dev only —
+  # production credentials should always come from real env vars.
+
+  - name: local_oracle
+    type: oracle
+    dsn: ${ORACLE_LOCAL_DSN:-localhost:1521/FREEPDB1}
+    user: ${ORACLE_LOCAL_USER:-system}
+    password: ${ORACLE_LOCAL_PASSWORD:-password123}
+    include_views: true
+    schema_filter: [GEO, SOLAR]
+
+  # Example additional Oracle source (uncomment and set env vars):
   # - name: prod_oracle
   #   type: oracle
-  #   dsn: ${ORACLE_DSN}
-  #   user: ${ORACLE_USER}
-  #   password: ${ORACLE_PASSWORD}
+  #   dsn: ${ORACLE_PROD_DSN}
+  #   user: ${ORACLE_PROD_USER}
+  #   password: ${ORACLE_PROD_PASSWORD}
+  #   schema_filter: []        # e.g. [HR, SALES] to restrict
+  #   include_views: true

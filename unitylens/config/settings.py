@@ -24,14 +24,18 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 def _interpolate_env_vars(value: Any) -> Any:
     """Recursively replace ``${ENV_VAR}`` placeholders with env values."""
     if isinstance(value, str):
-        pattern = re.compile(r"\$\{(\w+)\}")
+        pattern = re.compile(r"\$\{(\w+)(?::-([^}]*))?\}")
 
         def replacer(match: re.Match) -> str:
             var_name = match.group(1)
-            env_val = os.environ.get(var_name, "")
-            if not env_val:
-                logger.warning("Environment variable '%s' is not set", var_name)
-            return env_val
+            default = match.group(2)
+            env_val = os.environ.get(var_name)
+            if env_val:
+                return env_val
+            if default is not None:
+                return default
+            logger.warning("Environment variable '%s' is not set", var_name)
+            return ""
 
         return pattern.sub(replacer, value)
     elif isinstance(value, dict):
